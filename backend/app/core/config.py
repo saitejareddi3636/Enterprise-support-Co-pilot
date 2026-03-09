@@ -11,6 +11,7 @@ class Settings:
     database_url: str
     chunk_size: int
     chunk_overlap: int
+    llm_provider: str
     openai_api_key: str | None
     openai_embedding_model: str
     openai_chat_model: str
@@ -19,6 +20,10 @@ class Settings:
     rerank_enabled: bool
     rerank_model: str
     langfuse_enabled: bool
+    gemini_api_key: str | None
+    gemini_embedding_model: str
+    gemini_chat_model: str
+    gemini_rerank_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -30,6 +35,7 @@ class Settings:
         )
         chunk_size = int(os.getenv("CHUNK_SIZE", "800"))
         chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
+        llm_provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
         openai_api_key = os.getenv("OPENAI_API_KEY")
         openai_embedding_model = os.getenv(
             "OPENAI_EMBEDDING_MODEL",
@@ -44,12 +50,20 @@ class Settings:
         rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
         rerank_model = os.getenv("RERANK_MODEL", "gpt-4o-mini")
         langfuse_enabled = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        gemini_embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+        gemini_chat_model = os.getenv("GEMINI_CHAT_MODEL", "gemini-3-flash-preview")
+        gemini_rerank_model = os.getenv("GEMINI_RERANK_MODEL", gemini_chat_model)
+
+        if llm_provider not in {"openai", "gemini"}:
+            llm_provider = "openai"
         return cls(
             app_env=app_env,
             app_port=app_port,
             database_url=database_url,
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
+            llm_provider=llm_provider,
             openai_api_key=openai_api_key,
             openai_embedding_model=openai_embedding_model,
             openai_chat_model=openai_chat_model,
@@ -58,6 +72,10 @@ class Settings:
             rerank_enabled=rerank_enabled,
             rerank_model=rerank_model,
             langfuse_enabled=langfuse_enabled,
+            gemini_api_key=gemini_api_key,
+            gemini_embedding_model=gemini_embedding_model,
+            gemini_chat_model=gemini_chat_model,
+            gemini_rerank_model=gemini_rerank_model,
         )
 
 

@@ -254,8 +254,13 @@ Set at minimum:
 
 Optional:
 
+- `LLM_PROVIDER` (`openai` or `gemini`)
 - `OPENAI_EMBEDDING_MODEL`
 - `OPENAI_CHAT_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_EMBEDDING_MODEL`
+- `GEMINI_CHAT_MODEL`
+- `GEMINI_RERANK_MODEL`
 - `SEMANTIC_CANDIDATES`, `KEYWORD_CANDIDATES`
 - `RERANK_ENABLED`, `RERANK_MODEL`
 - `LANGFUSE_*` variables
@@ -263,6 +268,7 @@ Optional:
 Run the API:
 
 ```bash
+# Ensure Postgres is running (see 10.2) before starting the backend.
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -274,7 +280,7 @@ Health check:
 
 ```bash
 cd frontend
-npm install
+npm install --legacy-peer-deps
 cp .env.example .env
 ```
 

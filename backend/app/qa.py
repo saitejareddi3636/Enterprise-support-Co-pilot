@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from openai import OpenAI
+from google import genai
 
 from .core.config import settings
 from .observability import observation
@@ -29,6 +30,12 @@ def _client() -> OpenAI:
     if not settings.openai_api_key:
         raise AnswerGenerationError("OPENAI_API_KEY is not configured.")
     return OpenAI(api_key=settings.openai_api_key)
+
+
+def _gemini_client() -> genai.Client:
+    if not settings.gemini_api_key:
+        raise AnswerGenerationError("GEMINI_API_KEY is not configured.")
+    return genai.Client(api_key=settings.gemini_api_key)
 
 
 def build_prompt(question: str, contexts: Sequence[ContextChunk]) -> str:
@@ -76,7 +83,6 @@ def build_prompt(question: str, contexts: Sequence[ContextChunk]) -> str:
 
 
 def generate_answer(question: str, contexts: Sequence[ContextChunk]) -> str:
-    client = _client()
     prompt = build_prompt(question, contexts)
 
     try:
@@ -84,28 +90,42 @@ def generate_answer(question: str, contexts: Sequence[ContextChunk]) -> str:
             "answer_generation",
             as_type="generation",
             input={"question": question, "num_context_chunks": len(contexts)},
-            metadata={"model": settings.openai_chat_model},
+            metadata={
+                "provider": settings.llm_provider,
+                "model": settings.gemini_chat_model
+                if settings.llm_provider == "gemini"
+                else settings.openai_chat_model,
+            },
         ) as obs:
-            response = client.chat.completions.create(
-                model=settings.openai_chat_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a careful enterprise support copilot. "
-                            "Follow the user's prompt exactly."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    },
-                ],
-                temperature=0.1,
-            )
+            if settings.llm_provider == "gemini":
+                client = _gemini_client()
+                response = client.models.generate_content(
+                    model=settings.gemini_chat_model,
+                    contents=prompt,
+                )
+                content = (getattr(response, "text", None) or "").strip()
+            else:
+                client = _client()
+                response = client.chat.completions.create(
+                    model=settings.openai_chat_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a careful enterprise support copilot. "
+                                "Follow the user's prompt exactly."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        },
+                    ],
+                    temperature=0.1,
+                )
 
-            choice = response.choices[0]
-            content = (choice.message.content or "").strip()
+                choice = response.choices[0]
+                content = (choice.message.content or "").strip()
 
             if obs is not None:
                 obs.update(output=content)
