@@ -52,4 +52,5 @@ class AskResponse(BaseModel):
     answer: str
     chunks: list[RetrievedChunk]
     documents: list[str]
+    supported: bool
 

@@ -16,6 +16,8 @@ class Settings:
     openai_chat_model: str
     semantic_candidates: int
     keyword_candidates: int
+    rerank_enabled: bool
+    rerank_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -38,6 +40,8 @@ class Settings:
         )
         semantic_candidates = int(os.getenv("SEMANTIC_CANDIDATES", "32"))
         keyword_candidates = int(os.getenv("KEYWORD_CANDIDATES", "32"))
+        rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
+        rerank_model = os.getenv("RERANK_MODEL", "gpt-4o-mini")
         return cls(
             app_env=app_env,
             app_port=app_port,
@@ -49,6 +53,8 @@ class Settings:
             openai_chat_model=openai_chat_model,
             semantic_candidates=semantic_candidates,
             keyword_candidates=keyword_candidates,
+            rerank_enabled=rerank_enabled,
+            rerank_model=rerank_model,
         )
 
 

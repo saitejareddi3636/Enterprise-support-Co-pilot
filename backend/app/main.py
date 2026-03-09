@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .core.config import settings
 from .db import Base, engine, get_db
-from . import chunking, embeddings, models, parsers, qa, retrieval, schemas
+from . import chunking, embeddings, models, parsers, qa, rerank, retrieval, schemas
 
 
 def create_app() -> FastAPI:
@@ -171,14 +171,20 @@ def create_app() -> FastAPI:
                 ),
                 chunks=[],
                 documents=[],
+                supported=False,
             )
             return empty_response
+
+        try:
+            ranked_items = rerank.rerank_items(query=query, items=items)
+        except rerank.RerankError:
+            ranked_items = items
 
         context_chunks: list[qa.ContextChunk] = []
         retrieved_chunks: list[schemas.RetrievedChunk] = []
         seen_documents: dict[str, str] = {}
 
-        for item in items:
+        for item in ranked_items:
             chunk = item.chunk
             document = item.document
 
@@ -214,19 +220,32 @@ def create_app() -> FastAPI:
             doc_key = str(document.id)
             if doc_key not in seen_documents:
                 seen_documents[doc_key] = document.title
+        scores = [item.score for item in ranked_items]
+        top_score = scores[0] if scores else 0.0
+        window = scores[: min(3, len(scores))]
+        avg_top = sum(window) / len(window) if window else 0.0
 
-        try:
-            answer_text = qa.generate_answer(query, context_chunks)
-        except qa.AnswerGenerationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(exc),
-            ) from exc
+        supported = not (top_score < 0.25 and avg_top < 0.35)
+
+        if not supported:
+            answer_text = (
+                "The answer cannot be confidently determined from the available "
+                "documents."
+            )
+        else:
+            try:
+                answer_text = qa.generate_answer(query, context_chunks)
+            except qa.AnswerGenerationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(exc),
+                ) from exc
 
         response = schemas.AskResponse(
             answer=answer_text,
             chunks=retrieved_chunks,
             documents=list(seen_documents.values()),
+            supported=supported,
         )
 
         return response

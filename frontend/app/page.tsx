@@ -20,6 +20,7 @@ export default function HomePage() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<RetrievedChunk[]>([]);
+  const [supported, setSupported] = useState<boolean | null>(null);
   const [isAsking, setIsAsking] = useState(false);
 
   const handleUpload = (event: FormEvent<HTMLFormElement>) => {
@@ -40,6 +41,7 @@ export default function HomePage() {
     try {
       setAnswer("");
       setCitations([]);
+      setSupported(null);
 
       const response = await fetch(`${API_BASE_URL}/ask`, {
         method: "POST",
@@ -57,6 +59,11 @@ export default function HomePage() {
       const data = await response.json();
       setAnswer(data.answer ?? "");
       setCitations(Array.isArray(data.chunks) ? data.chunks : []);
+      if (typeof data.supported === "boolean") {
+        setSupported(data.supported);
+      } else {
+        setSupported(true);
+      }
     } finally {
       setIsAsking(false);
     }
@@ -106,6 +113,12 @@ export default function HomePage() {
           <div className="card">
             {answer ? (
               <div className="answer">
+                {supported === false && (
+                  <p className="muted">
+                    This answer could not be verified from the available
+                    documents. Showing the closest matches below.
+                  </p>
+                )}
                 <p>{answer}</p>
                 {citations.length > 0 && (
                   <div className="citations">
