@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from collections.abc import Generator
 
 from .core.config import settings
 
@@ -13,15 +12,14 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, futu
 Base = declarative_base()
 
 
-@contextmanager
-def get_session() -> Session:
-    session: Session = SessionLocal()
+def get_db() -> Generator[Session, None, None]:
+    db: Session = SessionLocal()
     try:
-        yield session
-        session.commit()
+        yield db
+        db.commit()
     except Exception:
-        session.rollback()
+        db.rollback()
         raise
     finally:
-        session.close()
+        db.close()
 
