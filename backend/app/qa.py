@@ -6,6 +6,7 @@ from typing import Sequence
 from openai import OpenAI
 
 from .core.config import settings
+from .observability import observation
 
 
 class AnswerGenerationError(Exception):
@@ -79,27 +80,37 @@ def generate_answer(question: str, contexts: Sequence[ContextChunk]) -> str:
     prompt = build_prompt(question, contexts)
 
     try:
-        response = client.chat.completions.create(
-            model=settings.openai_chat_model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a careful enterprise support copilot. "
-                        "Follow the user's prompt exactly."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.1,
-        )
+        with observation(
+            "answer_generation",
+            as_type="generation",
+            input={"question": question, "num_context_chunks": len(contexts)},
+            metadata={"model": settings.openai_chat_model},
+        ) as obs:
+            response = client.chat.completions.create(
+                model=settings.openai_chat_model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a careful enterprise support copilot. "
+                            "Follow the user's prompt exactly."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                temperature=0.1,
+            )
+
+            choice = response.choices[0]
+            content = (choice.message.content or "").strip()
+
+            if obs is not None:
+                obs.update(output=content)
+
+            return content
     except Exception as exc:
         raise AnswerGenerationError("Failed to generate answer.") from exc
-
-    choice = response.choices[0]
-    content = choice.message.content or ""
-    return content.strip()
 

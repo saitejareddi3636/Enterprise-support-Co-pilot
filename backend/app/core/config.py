@@ -18,6 +18,7 @@ class Settings:
     keyword_candidates: int
     rerank_enabled: bool
     rerank_model: str
+    langfuse_enabled: bool
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -42,6 +43,7 @@ class Settings:
         keyword_candidates = int(os.getenv("KEYWORD_CANDIDATES", "32"))
         rerank_enabled = os.getenv("RERANK_ENABLED", "false").lower() == "true"
         rerank_model = os.getenv("RERANK_MODEL", "gpt-4o-mini")
+        langfuse_enabled = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
         return cls(
             app_env=app_env,
             app_port=app_port,
@@ -55,6 +57,7 @@ class Settings:
             keyword_candidates=keyword_candidates,
             rerank_enabled=rerank_enabled,
             rerank_model=rerank_model,
+            langfuse_enabled=langfuse_enabled,
         )
 
 

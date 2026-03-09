@@ -7,7 +7,7 @@ from typing import Sequence
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import models
+from . import models, observability
 from .core.config import settings
 
 
@@ -166,32 +166,67 @@ def hybrid_retrieve_chunks(
     semantic_limit = min(top_k, settings.semantic_candidates)
     keyword_limit = min(top_k, settings.keyword_candidates)
 
-    semantic_items = retrieve_semantic_chunks(
-        db=db,
-        query_embedding=query_embedding,
-        limit=semantic_limit,
-        filters=filters,
-    )
-
-    keyword_items: list[RetrievedItem] = []
-    if keyword_limit > 0:
-        keyword_items = retrieve_keyword_chunks(
+    with observability.observation(
+        "hybrid_retrieval",
+        as_type="span",
+        input={"query": query_text, "top_k": top_k},
+    ) as obs:
+        semantic_items = retrieve_semantic_chunks(
             db=db,
-            query_text=query_text,
-            limit=keyword_limit,
+            query_embedding=query_embedding,
+            limit=semantic_limit,
             filters=filters,
         )
 
-    if not keyword_items:
-        return semantic_items[:top_k]
+        keyword_items: list[RetrievedItem] = []
+        if keyword_limit > 0:
+            keyword_items = retrieve_keyword_chunks(
+                db=db,
+                query_text=query_text,
+                limit=keyword_limit,
+                filters=filters,
+            )
 
-    # k parameter controls how quickly contributions from lower-ranked
-    # results decay. A modest constant keeps the formula stable.
-    return _reciprocal_rank_fusion(
-        semantic=semantic_items,
-        keyword=keyword_items,
-        k=60,
-        limit=top_k,
-    )
+        if not keyword_items:
+            result = semantic_items[:top_k]
+        else:
+            result = _reciprocal_rank_fusion(
+                semantic=semantic_items,
+                keyword=keyword_items,
+                k=60,
+                limit=top_k,
+            )
+
+        if obs is not None:
+            obs.update(
+                output={
+                    "semantic_candidates": [
+                        {
+                            "chunk_id": str(item.chunk.id),
+                            "document_id": str(item.document.id),
+                            "score": item.score,
+                        }
+                        for item in semantic_items
+                    ],
+                    "keyword_candidates": [
+                        {
+                            "chunk_id": str(item.chunk.id),
+                            "document_id": str(item.document.id),
+                            "score": item.score,
+                        }
+                        for item in keyword_items
+                    ],
+                    "fused": [
+                        {
+                            "chunk_id": str(item.chunk.id),
+                            "document_id": str(item.document.id),
+                            "score": item.score,
+                        }
+                        for item in result
+                    ],
+                }
+            )
+
+        return result
 
 

@@ -21,6 +21,7 @@ export default function HomePage() {
   const [answer, setAnswer] = useState("");
   const [citations, setCitations] = useState<RetrievedChunk[]>([]);
   const [supported, setSupported] = useState<boolean | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [isAsking, setIsAsking] = useState(false);
 
   const handleUpload = (event: FormEvent<HTMLFormElement>) => {
@@ -28,7 +29,31 @@ export default function HomePage() {
     if (!file) {
       return;
     }
-    // Wire up backend upload API here later.
+    setUploadMessage(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    fetch(`${API_BASE_URL}/documents/upload`, {
+      method: "POST",
+      body: formData,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          setUploadMessage("Upload failed. Check the file type and try again.");
+          return;
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data) {
+          return;
+        }
+        setUploadMessage(`Uploaded "${data.title}" successfully.`);
+      })
+      .catch(() => {
+        setUploadMessage("Upload failed. Please try again.");
+      });
   };
 
   const handleAsk = async (event: FormEvent<HTMLFormElement>) => {
@@ -73,86 +98,103 @@ export default function HomePage() {
     <main className="page">
       <div className="container">
         <h1 className="title">Enterprise Support Copilot</h1>
+        <p className="subtitle">
+          Upload support content, ask a question, and see grounded answers with
+          clear citations.
+        </p>
 
-        <section className="section">
-          <h2 className="sectionTitle">Upload documents</h2>
-          <form className="card" onSubmit={handleUpload}>
-            <label className="label">
-              <span>Select file</span>
-              <input
-                type="file"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <button type="submit" className="button" disabled={!file}>
-              Upload
-            </button>
-          </form>
-        </section>
-
-        <section className="section">
-          <h2 className="sectionTitle">Ask a question</h2>
-          <form className="card" onSubmit={handleAsk}>
-            <label className="label">
-              <span>Your question</span>
-              <textarea
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                rows={3}
-                placeholder="Ask about your support knowledge base..."
-              />
-            </label>
-            <button type="submit" className="button" disabled={isAsking}>
-              {isAsking ? "Thinking..." : "Ask"}
-            </button>
-          </form>
-        </section>
-
-        <section className="section">
-          <h2 className="sectionTitle">Answer</h2>
-          <div className="card">
-            {answer ? (
-              <div className="answer">
-                {supported === false && (
-                  <p className="muted">
-                    This answer could not be verified from the available
-                    documents. Showing the closest matches below.
+        <div className="layoutGrid">
+          <div className="layoutColumn">
+            <section className="section">
+              <h2 className="sectionTitle">Upload documents</h2>
+              <form className="card" onSubmit={handleUpload}>
+                <label className="label">
+                  <span>Select a PDF, Markdown, or text file</span>
+                  <input
+                    type="file"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <button type="submit" className="button" disabled={!file}>
+                  Upload
+                </button>
+                {uploadMessage && (
+                  <p className="muted" aria-live="polite">
+                    {uploadMessage}
                   </p>
                 )}
-                <p>{answer}</p>
-                {citations.length > 0 && (
-                  <div className="citations">
-                    <h3 className="sectionTitle">Citations</h3>
-                    <ul className="citationList">
-                      {citations.map((chunk) => (
-                        <li key={chunk.chunk_id} className="citationItem">
-                          <div className="citationTitle">
-                            {chunk.document_title}{" "}
-                            <span className="muted">
-                              (chunk {chunk.index}, score{" "}
-                              {chunk.score.toFixed(3)})
-                            </span>
-                          </div>
-                          {chunk.heading && (
-                            <div className="citationHeading">
-                              {chunk.heading}
-                            </div>
-                          )}
-                          <div className="citationContent">
-                            {chunk.content.slice(0, 280)}
-                            {chunk.content.length > 280 ? "…" : ""}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+              </form>
+            </section>
+
+            <section className="section">
+              <h2 className="sectionTitle">Ask a question</h2>
+              <form className="card" onSubmit={handleAsk}>
+                <label className="label">
+                  <span>Your question</span>
+                  <textarea
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    rows={4}
+                    placeholder="Ask about the uploaded support content..."
+                  />
+                </label>
+                <button type="submit" className="button" disabled={isAsking}>
+                  {isAsking ? "Thinking..." : "Ask"}
+                </button>
+              </form>
+            </section>
+          </div>
+
+          <div className="layoutColumn">
+            <section className="section">
+              <h2 className="sectionTitle">Answer</h2>
+              <div className="card">
+                {answer ? (
+                  <div className="answer">
+                    {supported === false && (
+                      <p className="muted">
+                        This answer could not be verified from the available
+                        documents. Showing the closest matches below.
+                      </p>
+                    )}
+                    <p>{answer}</p>
+                    {citations.length > 0 && (
+                      <div className="citations">
+                        <h3 className="sectionTitle">Citations</h3>
+                        <ul className="citationList">
+                          {citations.map((chunk) => (
+                            <li key={chunk.chunk_id} className="citationItem">
+                              <div className="citationTitle">
+                                {chunk.document_title}{" "}
+                                <span className="muted">
+                                  (chunk {chunk.index}, score{" "}
+                                  {chunk.score.toFixed(3)})
+                                </span>
+                              </div>
+                              {chunk.heading && (
+                                <div className="citationHeading">
+                                  {chunk.heading}
+                                </div>
+                              )}
+                              <div className="citationContent">
+                                {chunk.content.slice(0, 280)}
+                                {chunk.content.length > 280 ? "…" : ""}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  <p className="muted">
+                    Answers and citations will appear here.
+                  </p>
                 )}
               </div>
-            ) : (
-              <p className="muted">Answers will appear here.</p>
-            )}
+            </section>
           </div>
-        </section>
+        </div>
       </div>
     </main>
   );

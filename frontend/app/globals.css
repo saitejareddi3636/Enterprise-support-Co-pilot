@@ -30,6 +30,29 @@ body {
   max-width: 960px;
 }
 
+.subtitle {
+  margin: 0 0 1.5rem;
+  font-size: 0.95rem;
+  color: #4b5563;
+}
+
+.layoutGrid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.layoutColumn {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 900px) {
+  .layoutGrid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.1fr);
+    align-items: flex-start;
+  }
+}
+
 .title {
   font-size: 2rem;
   font-weight: 600;

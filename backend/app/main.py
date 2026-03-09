@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .core.config import settings
 from .db import Base, engine, get_db
-from . import chunking, embeddings, models, parsers, qa, rerank, retrieval, schemas
+from . import chunking, embeddings, models, observability, parsers, qa, rerank, retrieval, schemas
 
 
 def create_app() -> FastAPI:
@@ -34,58 +34,74 @@ def create_app() -> FastAPI:
                 detail="File name is required.",
             )
 
-        try:
-            text = parsers.extract_text(file)
-        except parsers.UnsupportedFileTypeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(exc),
-            ) from exc
-        except parsers.FileParsingError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
-            ) from exc
-
-        document = models.Document(
-            title=file.filename,
-            source="upload",
-            content_type=file.content_type,
-            raw_text=text,
-        )
-        db.add(document)
-
-        chunks = chunking.chunk_text(
-            text=text,
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-        )
-
-        if chunks:
-            texts = [c.text for c in chunks]
+        with observability.observation(
+            "document_ingestion",
+            as_type="trace",
+            input={
+                "filename": file.filename,
+                "content_type": file.content_type,
+            },
+        ) as obs:
             try:
-                vectors = embeddings.embed_texts(texts)
-            except embeddings.EmbeddingError as exc:
+                text = parsers.extract_text(file)
+            except parsers.UnsupportedFileTypeError as exc:
                 raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+            except parsers.FileParsingError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=str(exc),
                 ) from exc
 
-            for chunk_result, vector in zip(chunks, vectors, strict=True):
-                chunk = models.Chunk(
-                    document=document,
-                    index=chunk_result.index,
-                    content=chunk_result.text,
-                    heading=chunk_result.heading,
-                    metadata=None,
-                    embedding=vector,
+            document = models.Document(
+                title=file.filename,
+                source="upload",
+                content_type=file.content_type,
+                raw_text=text,
+            )
+            db.add(document)
+
+            chunks = chunking.chunk_text(
+                text=text,
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
+            )
+
+            if chunks:
+                texts = [c.text for c in chunks]
+                try:
+                    vectors = embeddings.embed_texts(texts)
+                except embeddings.EmbeddingError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=str(exc),
+                    ) from exc
+
+                for chunk_result, vector in zip(chunks, vectors, strict=True):
+                    chunk = models.Chunk(
+                        document=document,
+                        index=chunk_result.index,
+                        content=chunk_result.text,
+                        heading=chunk_result.heading,
+                        extra_metadata=None,
+                        embedding=vector,
+                    )
+                    db.add(chunk)
+
+            db.commit()
+            db.refresh(document)
+
+            if obs is not None:
+                obs.update(
+                    output={
+                        "document_id": str(document.id),
+                        "chunk_count": len(chunks),
+                    }
                 )
-                db.add(chunk)
 
-        db.commit()
-        db.refresh(document)
-
-        return document
+            return document
 
     @app.get(
         "/documents",
@@ -133,122 +149,143 @@ def create_app() -> FastAPI:
                 detail="Query is required.",
             )
 
-        top_k = payload.top_k or 8
-        if top_k <= 0:
-            top_k = 8
-        if top_k > 20:
-            top_k = 20
+        with observability.observation(
+            "ask",
+            as_type="trace",
+            input={"query": query, "top_k": payload.top_k},
+        ) as obs:
+            top_k = payload.top_k or 8
+            if top_k <= 0:
+                top_k = 8
+            if top_k > 20:
+                top_k = 20
 
-        try:
-            query_embedding = embeddings.embed_texts([query])[0]
-        except embeddings.EmbeddingError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=str(exc),
-            ) from exc
-
-        filters = retrieval.RetrievalFilters(
-            source=payload.source,
-            product_area=payload.product_area,
-            release_version=payload.release_version,
-            start_date=payload.start_date,
-            end_date=payload.end_date,
-        )
-
-        items = retrieval.hybrid_retrieve_chunks(
-            db=db,
-            query_text=query,
-            query_embedding=query_embedding,
-            top_k=top_k,
-            filters=filters,
-        )
-
-        if not items:
-            empty_response = schemas.AskResponse(
-                answer=(
-                    "The answer cannot be confidently determined from the available "
-                    "documents."
-                ),
-                chunks=[],
-                documents=[],
-                supported=False,
-            )
-            return empty_response
-
-        try:
-            ranked_items = rerank.rerank_items(query=query, items=items)
-        except rerank.RerankError:
-            ranked_items = items
-
-        context_chunks: list[qa.ContextChunk] = []
-        retrieved_chunks: list[schemas.RetrievedChunk] = []
-        seen_documents: dict[str, str] = {}
-
-        for item in ranked_items:
-            chunk = item.chunk
-            document = item.document
-
-            context_chunks.append(
-                qa.ContextChunk(
-                    content=chunk.content,
-                    document_title=document.title,
-                    source=document.source,
-                    product_area=document.product_area,
-                    release_version=document.release_version,
-                    heading=chunk.heading,
-                    score=item.score,
-                    index=chunk.index,
-                )
-            )
-
-            retrieved_chunks.append(
-                schemas.RetrievedChunk(
-                    chunk_id=chunk.id,
-                    document_id=document.id,
-                    document_title=document.title,
-                    source=document.source,
-                    product_area=document.product_area,
-                    release_version=document.release_version,
-                    created_at=document.created_at,
-                    index=chunk.index,
-                    heading=chunk.heading,
-                    content=chunk.content,
-                    score=item.score,
-                )
-            )
-
-            doc_key = str(document.id)
-            if doc_key not in seen_documents:
-                seen_documents[doc_key] = document.title
-        scores = [item.score for item in ranked_items]
-        top_score = scores[0] if scores else 0.0
-        window = scores[: min(3, len(scores))]
-        avg_top = sum(window) / len(window) if window else 0.0
-
-        supported = not (top_score < 0.25 and avg_top < 0.35)
-
-        if not supported:
-            answer_text = (
-                "The answer cannot be confidently determined from the available "
-                "documents."
-            )
-        else:
             try:
-                answer_text = qa.generate_answer(query, context_chunks)
-            except qa.AnswerGenerationError as exc:
+                query_embedding = embeddings.embed_texts([query])[0]
+            except embeddings.EmbeddingError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=str(exc),
                 ) from exc
 
-        response = schemas.AskResponse(
-            answer=answer_text,
-            chunks=retrieved_chunks,
-            documents=list(seen_documents.values()),
-            supported=supported,
-        )
+            filters = retrieval.RetrievalFilters(
+                source=payload.source,
+                product_area=payload.product_area,
+                release_version=payload.release_version,
+                start_date=payload.start_date,
+                end_date=payload.end_date,
+            )
 
-        return response
+            items = retrieval.hybrid_retrieve_chunks(
+                db=db,
+                query_text=query,
+                query_embedding=query_embedding,
+                top_k=top_k,
+                filters=filters,
+            )
+
+            if not items:
+                empty_response = schemas.AskResponse(
+                    answer=(
+                        "The answer cannot be confidently determined from the "
+                        "available documents."
+                    ),
+                    chunks=[],
+                    documents=[],
+                    supported=False,
+                )
+                if obs is not None:
+                    obs.update(output=empty_response.model_dump())
+                return empty_response
+
+            try:
+                ranked_items = rerank.rerank_items(query=query, items=items)
+            except rerank.RerankError:
+                ranked_items = items
+
+            context_chunks: list[qa.ContextChunk] = []
+            retrieved_chunks: list[schemas.RetrievedChunk] = []
+            seen_documents: dict[str, str] = {}
+
+            for item in ranked_items:
+                chunk = item.chunk
+                document = item.document
+
+                context_chunks.append(
+                    qa.ContextChunk(
+                        content=chunk.content,
+                        document_title=document.title,
+                        source=document.source,
+                        product_area=document.product_area,
+                        release_version=document.release_version,
+                        heading=chunk.heading,
+                        score=item.score,
+                        index=chunk.index,
+                    )
+                )
+
+                retrieved_chunks.append(
+                    schemas.RetrievedChunk(
+                        chunk_id=chunk.id,
+                        document_id=document.id,
+                        document_title=document.title,
+                        source=document.source,
+                        product_area=document.product_area,
+                        release_version=document.release_version,
+                        created_at=document.created_at,
+                        index=chunk.index,
+                        heading=chunk.heading,
+                        content=chunk.content,
+                        score=item.score,
+                    )
+                )
+
+                doc_key = str(document.id)
+                if doc_key not in seen_documents:
+                    seen_documents[doc_key] = document.title
+            scores = [item.score for item in ranked_items]
+            top_score = scores[0] if scores else 0.0
+            window = scores[: min(3, len(scores))]
+            avg_top = sum(window) / len(window) if window else 0.0
+
+            supported = not (top_score < 0.25 and avg_top < 0.35)
+
+            if not supported:
+                answer_text = (
+                    "The answer cannot be confidently determined from the available "
+                    "documents."
+                )
+            else:
+                try:
+                    answer_text = qa.generate_answer(query, context_chunks)
+                except qa.AnswerGenerationError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=str(exc),
+                    ) from exc
+
+            response = schemas.AskResponse(
+                answer=answer_text,
+                chunks=retrieved_chunks,
+                documents=list(seen_documents.values()),
+                supported=supported,
+            )
+
+            if obs is not None:
+                obs.update(
+                    output={
+                        "supported": supported,
+                        "selected_chunks": [
+                            {
+                                "chunk_id": str(chunk.chunk_id),
+                                "document_id": str(chunk.document_id),
+                            }
+                            for chunk in response.chunks
+                        ],
+                    }
+                )
+
+            return response
 
     return app
 
