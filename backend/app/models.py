@@ -18,6 +18,8 @@ class Document(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    product_area: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    release_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

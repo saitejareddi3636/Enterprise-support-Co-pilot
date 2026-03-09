@@ -27,12 +27,21 @@ class DocumentListItem(DocumentBase):
 class AskRequest(BaseModel):
     query: str
     top_k: int | None = None
+    source: str | None = None
+    product_area: str | None = None
+    release_version: str | None = None
+    start_date: datetime | None = None
+    end_date: datetime | None = None
 
 
 class RetrievedChunk(BaseModel):
     chunk_id: uuid.UUID
     document_id: uuid.UUID
     document_title: str
+    source: str | None = None
+    product_area: str | None = None
+    release_version: str | None = None
+    created_at: datetime
     index: int
     heading: str | None = None
     content: str

@@ -16,6 +16,9 @@ class AnswerGenerationError(Exception):
 class ContextChunk:
     content: str
     document_title: str
+    source: str | None
+    product_area: str | None
+    release_version: str | None
     heading: str | None
     score: float
     index: int
@@ -40,6 +43,12 @@ def build_prompt(question: str, contexts: Sequence[ContextChunk]) -> str:
 
     for i, ctx in enumerate(contexts, start=1):
         lines.append(f"[{i}] Document: {ctx.document_title}")
+        if ctx.source:
+            lines.append(f"Source: {ctx.source}")
+        if ctx.product_area:
+            lines.append(f"Product area: {ctx.product_area}")
+        if ctx.release_version:
+            lines.append(f"Release version: {ctx.release_version}")
         if ctx.heading:
             lines.append(f"Heading: {ctx.heading}")
         lines.append(f"Score: {ctx.score:.3f}")

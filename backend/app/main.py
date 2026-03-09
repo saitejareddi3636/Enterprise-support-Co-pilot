@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .core.config import settings
 from .db import Base, engine, get_db
-from . import chunking, embeddings, models, parsers, qa, schemas
+from . import chunking, embeddings, models, parsers, qa, retrieval, schemas
 
 
 def create_app() -> FastAPI:
@@ -147,21 +147,22 @@ def create_app() -> FastAPI:
                 detail=str(exc),
             ) from exc
 
-        distance_expr = models.Chunk.embedding.cosine_distance(query_embedding)
-
-        rows = (
-            db.query(
-                models.Chunk,
-                models.Document,
-                distance_expr.label("distance"),
-            )
-            .join(models.Document, models.Chunk.document_id == models.Document.id)
-            .order_by(distance_expr)
-            .limit(top_k)
-            .all()
+        filters = retrieval.RetrievalFilters(
+            source=payload.source,
+            product_area=payload.product_area,
+            release_version=payload.release_version,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
         )
 
-        if not rows:
+        items = retrieval.retrieve_chunks(
+            db=db,
+            query_embedding=query_embedding,
+            top_k=top_k,
+            filters=filters,
+        )
+
+        if not items:
             empty_response = schemas.AskResponse(
                 answer=(
                     "The answer cannot be confidently determined from the available "
@@ -174,17 +175,21 @@ def create_app() -> FastAPI:
 
         context_chunks: list[qa.ContextChunk] = []
         retrieved_chunks: list[schemas.RetrievedChunk] = []
-        seen_documents: dict[uuid.UUID, str] = {}
+        seen_documents: dict[str, str] = {}
 
-        for chunk, document, distance in rows:
-            similarity = 1.0 - float(distance) if distance is not None else 0.0
+        for item in items:
+            chunk = item.chunk
+            document = item.document
 
             context_chunks.append(
                 qa.ContextChunk(
                     content=chunk.content,
                     document_title=document.title,
+                    source=document.source,
+                    product_area=document.product_area,
+                    release_version=document.release_version,
                     heading=chunk.heading,
-                    score=similarity,
+                    score=item.score,
                     index=chunk.index,
                 )
             )
@@ -194,15 +199,20 @@ def create_app() -> FastAPI:
                     chunk_id=chunk.id,
                     document_id=document.id,
                     document_title=document.title,
+                    source=document.source,
+                    product_area=document.product_area,
+                    release_version=document.release_version,
+                    created_at=document.created_at,
                     index=chunk.index,
                     heading=chunk.heading,
                     content=chunk.content,
-                    score=similarity,
+                    score=item.score,
                 )
             )
 
-            if document.id not in seen_documents:
-                seen_documents[document.id] = document.title
+            doc_key = str(document.id)
+            if doc_key not in seen_documents:
+                seen_documents[doc_key] = document.title
 
         try:
             answer_text = qa.generate_answer(query, context_chunks)
