@@ -14,6 +14,8 @@ class Settings:
     openai_api_key: str | None
     openai_embedding_model: str
     openai_chat_model: str
+    semantic_candidates: int
+    keyword_candidates: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -34,6 +36,8 @@ class Settings:
             "OPENAI_CHAT_MODEL",
             "gpt-4o-mini",
         )
+        semantic_candidates = int(os.getenv("SEMANTIC_CANDIDATES", "32"))
+        keyword_candidates = int(os.getenv("KEYWORD_CANDIDATES", "32"))
         return cls(
             app_env=app_env,
             app_port=app_port,
@@ -43,6 +47,8 @@ class Settings:
             openai_api_key=openai_api_key,
             openai_embedding_model=openai_embedding_model,
             openai_chat_model=openai_chat_model,
+            semantic_candidates=semantic_candidates,
+            keyword_candidates=keyword_candidates,
         )
 
 

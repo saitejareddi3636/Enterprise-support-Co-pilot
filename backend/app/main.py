@@ -155,8 +155,9 @@ def create_app() -> FastAPI:
             end_date=payload.end_date,
         )
 
-        items = retrieval.retrieve_chunks(
+        items = retrieval.hybrid_retrieve_chunks(
             db=db,
+            query_text=query,
             query_embedding=query_embedding,
             top_k=top_k,
             filters=filters,
