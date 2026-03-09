@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Sequence
+
+from openai import OpenAI
+
+from .core.config import settings
+
+
+class AnswerGenerationError(Exception):
+    pass
+
+
+@dataclass
+class ContextChunk:
+    content: str
+    document_title: str
+    heading: str | None
+    score: float
+    index: int
+
+
+def _client() -> OpenAI:
+    if not settings.openai_api_key:
+        raise AnswerGenerationError("OPENAI_API_KEY is not configured.")
+    return OpenAI(api_key=settings.openai_api_key)
+
+
+def build_prompt(question: str, contexts: Sequence[ContextChunk]) -> str:
+    lines: list[str] = []
+    lines.append("You are an enterprise support assistant.")
+    lines.append(
+        "Use only the context sections below to answer the question. "
+        "If the context does not contain enough information, say that the "
+        "answer cannot be confidently determined from the available documents."
+    )
+    lines.append("")
+    lines.append("Context:")
+
+    for i, ctx in enumerate(contexts, start=1):
+        lines.append(f"[{i}] Document: {ctx.document_title}")
+        if ctx.heading:
+            lines.append(f"Heading: {ctx.heading}")
+        lines.append(f"Score: {ctx.score:.3f}")
+        lines.append("---")
+        lines.append(ctx.content)
+        lines.append("")
+
+    lines.append("Instructions:")
+    lines.append("- Answer only using the context above.")
+    lines.append(
+        "- If the answer is not clearly supported by the context, respond with: "
+        "\"The answer cannot be confidently determined from the available documents.\""
+    )
+    lines.append("- Do not fabricate sources or details.")
+    lines.append(
+        "- When you use information from a context section, cite it inline as "
+        "[doc: <document title>, chunk: <index>]."
+    )
+    lines.append("")
+    lines.append(f"Question: {question}")
+    lines.append("Answer:")
+
+    return "\n".join(lines)
+
+
+def generate_answer(question: str, contexts: Sequence[ContextChunk]) -> str:
+    client = _client()
+    prompt = build_prompt(question, contexts)
+
+    try:
+        response = client.chat.completions.create(
+            model=settings.openai_chat_model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a careful enterprise support copilot. "
+                        "Follow the user's prompt exactly."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            temperature=0.1,
+        )
+    except Exception as exc:
+        raise AnswerGenerationError("Failed to generate answer.") from exc
+
+    choice = response.choices[0]
+    content = choice.message.content or ""
+    return content.strip()
+

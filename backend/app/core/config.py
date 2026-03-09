@@ -13,6 +13,7 @@ class Settings:
     chunk_overlap: int
     openai_api_key: str | None
     openai_embedding_model: str
+    openai_chat_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -26,7 +27,12 @@ class Settings:
         chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
         openai_api_key = os.getenv("OPENAI_API_KEY")
         openai_embedding_model = os.getenv(
-            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+            "OPENAI_EMBEDDING_MODEL",
+            "text-embedding-3-small",
+        )
+        openai_chat_model = os.getenv(
+            "OPENAI_CHAT_MODEL",
+            "gpt-4o-mini",
         )
         return cls(
             app_env=app_env,
@@ -36,6 +42,7 @@ class Settings:
             chunk_overlap=chunk_overlap,
             openai_api_key=openai_api_key,
             openai_embedding_model=openai_embedding_model,
+            openai_chat_model=openai_chat_model,
         )
 
 

@@ -23,3 +23,24 @@ class DocumentCreateResponse(DocumentBase):
 class DocumentListItem(DocumentBase):
     raw_text_preview: str | None = None
 
+
+class AskRequest(BaseModel):
+    query: str
+    top_k: int | None = None
+
+
+class RetrievedChunk(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_title: str
+    index: int
+    heading: str | None = None
+    content: str
+    score: float
+
+
+class AskResponse(BaseModel):
+    answer: str
+    chunks: list[RetrievedChunk]
+    documents: list[str]
+
