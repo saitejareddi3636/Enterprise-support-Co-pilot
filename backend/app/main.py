@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .core.config import settings
 from .db import Base, engine, get_db
-from . import models, parsers, schemas
+from . import chunking, embeddings, models, parsers, schemas
 
 
 def create_app() -> FastAPI:
@@ -54,6 +54,34 @@ def create_app() -> FastAPI:
             raw_text=text,
         )
         db.add(document)
+
+        chunks = chunking.chunk_text(
+            text=text,
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+        )
+
+        if chunks:
+            texts = [c.text for c in chunks]
+            try:
+                vectors = embeddings.embed_texts(texts)
+            except embeddings.EmbeddingError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(exc),
+                ) from exc
+
+            for chunk_result, vector in zip(chunks, vectors, strict=True):
+                chunk = models.Chunk(
+                    document=document,
+                    index=chunk_result.index,
+                    content=chunk_result.text,
+                    heading=chunk_result.heading,
+                    metadata=None,
+                    embedding=vector,
+                )
+                db.add(chunk)
+
         db.commit()
         db.refresh(document)
 

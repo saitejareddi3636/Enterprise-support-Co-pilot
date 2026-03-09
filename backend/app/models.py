@@ -38,7 +38,10 @@ class Chunk(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
+    index: Mapped[int] = mapped_column(nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    heading: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False

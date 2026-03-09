@@ -9,6 +9,10 @@ class Settings:
     app_env: str
     app_port: int
     database_url: str
+    chunk_size: int
+    chunk_overlap: int
+    openai_api_key: str | None
+    openai_embedding_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -18,7 +22,21 @@ class Settings:
             "DATABASE_URL",
             "postgresql+psycopg2://postgres:postgres@localhost:5432/enterprise_support",
         )
-        return cls(app_env=app_env, app_port=app_port, database_url=database_url)
+        chunk_size = int(os.getenv("CHUNK_SIZE", "800"))
+        chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        openai_embedding_model = os.getenv(
+            "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
+        )
+        return cls(
+            app_env=app_env,
+            app_port=app_port,
+            database_url=database_url,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            openai_api_key=openai_api_key,
+            openai_embedding_model=openai_embedding_model,
+        )
 
 
 settings = Settings.from_env()
